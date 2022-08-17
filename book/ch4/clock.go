@@ -8,7 +8,7 @@ const (
 // Implementation of a naive non-concurrent safe map with a limited size
 // and it is using clock algorithm as eviction policy
 type ClockMap struct {
-	currentIdx   int
+	clockHandIdx int             // This is used as a clock shorthand when searching for eviction candidate
 	data         []*ClockMapData // The real data is stored in a slice
 	keyToDataMap map[int]int     // Map key to the index in slice that holds the real data
 	freeKeys     []int           // freeKeys stores list of keys that are free to use for storage, mainly filled after an entry deletion
@@ -16,7 +16,7 @@ type ClockMap struct {
 
 func NewClockMap(size int) *ClockMap {
 	return &ClockMap{
-		currentIdx:   0,
+		clockHandIdx: 0,
 		data:         make([]*ClockMapData, 0, size),
 		keyToDataMap: map[int]int{},
 		freeKeys:     make([]int, 0),
@@ -31,7 +31,7 @@ func (cm *ClockMap) Get(key int) (interface{}, bool) {
 }
 
 func (cm *ClockMap) Set(key int, value interface{}) {
-	if cm.Len() < cm.Cap() {
+	if len(cm.data) < cap(cm.data) {
 		// clock map still not full yet
 		cm.data = append(cm.data, NewClockMapData(value))
 		cm.keyToDataMap[key] = cm.Len() - 1
@@ -65,16 +65,24 @@ func (cm *ClockMap) Cap() int {
 }
 
 func (cm *ClockMap) Len() int {
-	return len(cm.data)
+	return len(cm.data) - len(cm.freeKeys)
 }
 
+// Search next evictable item by repeatedly demoting and moving clockhand
 func (cm *ClockMap) nextEvictable() (evictableIdx int) {
-	for cm.data[cm.currentIdx].Demote() {
-		cm.currentIdx++
+	for cm.data[cm.clockHandIdx].Demote() {
+		cm.moveClockHand()
 	}
-	evictableIdx = cm.currentIdx
-	cm.currentIdx += 1
+	evictableIdx = cm.clockHandIdx
+	cm.moveClockHand()
 	return
+}
+
+func (cm *ClockMap) moveClockHand() {
+	cm.clockHandIdx += 1
+	if cm.clockHandIdx >= cm.Len() {
+		cm.clockHandIdx = 0
+	}
 }
 
 type ClockMapData struct {
